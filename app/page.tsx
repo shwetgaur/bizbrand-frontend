@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import axios, { isAxiosError } from 'axios'; // <-- Import isAxiosError
 
-// IMPORTANT: Set this in your Vercel environment variables
+// This URL is correct. It loads the Vercel env variable, or uses localhost as a backup.
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 type DomainStatus = {
@@ -16,7 +16,7 @@ type DomainStatus = {
 
 export default function Home() {
   const [description, setDescription] = useState('');
-  const [names, setNames] = useState<string[]>([]);
+  const [names, setNames] = useState<string[]>([]); // <-- Initial state is an empty array []
   const [domainStatus, setDomainStatus] = useState<DomainStatus>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function Home() {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
-    setNames([]);
+    setNames([]); // <-- Reset to an empty array
     setDomainStatus({});
 
     try {
@@ -33,35 +33,33 @@ export default function Home() {
         description: description,
       });
 
-      // Log what the API *actually* sent back
       console.log("Full API Response:", response);
 
-      // Check if the response data and the 'names' property exist and is an array
+      // --- START OF THE MAP() CRASH FIX ---
+      // Check if the response data AND the 'names' property exist and is an array
       if (response.data && Array.isArray(response.data.names)) {
+        // This is the "happy path"
         setNames(response.data.names);
       } else {
+        // The API returned a 200 OK, but not the data we expected.
         console.error("API returned unexpected data:", response.data);
         setError('API returned invalid data. Check console for details.');
       }
+      // --- END OF THE MAP() CRASH FIX ---
 
-    } catch (err) { // <-- 'err' is of type 'unknown'
+    } catch (err) { // 'err' is of type 'unknown'
       
       console.error("API Request Failed:", err);
-
-      // ---- START OF TYPESCRIPT FIX ----
       
-      // Check if this is an Axios error and if it has our backend's error format
+      // This part safely checks for errors
       if (isAxiosError(err) && err.response?.data?.error) {
         // This is a specific error from our backend (e.g., "Model is loading...")
         setError(err.response.data.error);
       } else if (err instanceof Error) {
-        // This is a generic network error
         setError(err.message);
       } else {
-        // This is an unknown error
         setError('An unknown error occurred. Please try again.');
       }
-      // ---- END OF TYPESCRIPT FIX ----
 
     } finally {
       setIsLoading(false);
@@ -69,7 +67,6 @@ export default function Home() {
   };
 
   const handleDomainCheck = async (name: string) => {
-    // Set loading state for this specific name
     setDomainStatus((prev) => ({
       ...prev,
       [name]: { loading: true },
