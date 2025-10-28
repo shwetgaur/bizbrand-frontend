@@ -23,6 +23,8 @@ export default function Home() {
 
 // app/page.tsx
 
+  // app/page.tsx
+
   const handleNameGeneration = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -36,40 +38,40 @@ export default function Home() {
       });
 
       console.log("Full API Response:", response);
-
-      // --- START OF THE FIX ---
       
-      // Check 1: Does the backend send { names: [...] } ?
       if (response.data && Array.isArray(response.data.names)) {
         setNames(response.data.names);
-      
-      // Check 2: OR does the backend send [...] directly?
       } else if (response.data && Array.isArray(response.data)) {
-        setNames(response.data); // <-- This will now succeed
-      
-      // Check 3: If neither, it's invalid data.
+        setNames(response.data); 
       } else {
         console.error("API returned unexpected data:", response.data);
         setError('API returned invalid data. Check console for details.');
       }
-      // --- END OF THE FIX ---
 
     } catch (err) {
       console.error("API Request Failed:", err);
       
+      // --- START OF THE FIX ---
       if (isAxiosError(err) && err.response?.data?.error) {
-        setError(err.response.data.error);
+        const errMsg = err.response.data.error;
+        // Check if the error is a string or an object
+        if (typeof errMsg === 'string') {
+          setError(errMsg);
+        } else {
+          // If it's an object, stringify it to make it renderable
+          setError(JSON.stringify(errMsg));
+        }
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('An unknown error occurred. Please try again.');
       }
+      // --- END OF THE FIX ---
 
     } finally {
       setIsLoading(false);
     }
   };
-
   const handleDomainCheck = async (name: string) => {
     setDomainStatus((prev) => ({
       ...prev,
@@ -93,12 +95,9 @@ export default function Home() {
       }));
       
       if (isAxiosError(err) && err.response?.data?.error) {
-        const errMsg = err.response.data.error;
-        setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
-      } else if (err instanceof Error) {
-        setError(err.message);
+        alert(`Failed to check domain: ${err.response.data.error}`);
       } else {
-        setError('An unknown error occurred. Please try again.');
+        alert(`Failed to check domain for ${name}`);
       }
     }
   };
