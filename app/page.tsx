@@ -1,13 +1,12 @@
 // app/page.tsx
-'use client'; // This is required for components with hooks like useState
+'use client';
 
 import { useState } from 'react';
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios'; // <-- Import isAxiosError
 
 // IMPORTANT: Set this in your Vercel environment variables
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
-// Define a type for the domain availability state
 type DomainStatus = {
   [key: string]: {
     loading: boolean;
@@ -33,9 +32,37 @@ export default function Home() {
       const response = await axios.post(`${API_BASE_URL}/generate-name`, {
         description: description,
       });
-      setNames(response.data.names);
-    } catch (err) {
-      setError('Failed to generate names. Please try again.');
+
+      // Log what the API *actually* sent back
+      console.log("Full API Response:", response);
+
+      // Check if the response data and the 'names' property exist and is an array
+      if (response.data && Array.isArray(response.data.names)) {
+        setNames(response.data.names);
+      } else {
+        console.error("API returned unexpected data:", response.data);
+        setError('API returned invalid data. Check console for details.');
+      }
+
+    } catch (err) { // <-- 'err' is of type 'unknown'
+      
+      console.error("API Request Failed:", err);
+
+      // ---- START OF TYPESCRIPT FIX ----
+      
+      // Check if this is an Axios error and if it has our backend's error format
+      if (isAxiosError(err) && err.response?.data?.error) {
+        // This is a specific error from our backend (e.g., "Model is loading...")
+        setError(err.response.data.error);
+      } else if (err instanceof Error) {
+        // This is a generic network error
+        setError(err.message);
+      } else {
+        // This is an unknown error
+        setError('An unknown error occurred. Please try again.');
+      }
+      // ---- END OF TYPESCRIPT FIX ----
+
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +80,6 @@ export default function Home() {
         params: { domain: name.toLowerCase().replace(/[^a-z0-9]/gi, '') },
       });
       
-      // Update state with the result
       setDomainStatus((prev) => ({
         ...prev,
         [name]: { loading: false, available: response.data.available },
@@ -64,7 +90,12 @@ export default function Home() {
         ...prev,
         [name]: { loading: false },
       }));
-      alert(`Failed to check domain for ${name}`);
+      
+      if (isAxiosError(err) && err.response?.data?.error) {
+        alert(`Failed to check domain: ${err.response.data.error}`);
+      } else {
+        alert(`Failed to check domain for ${name}`);
+      }
     }
   };
 
@@ -94,7 +125,11 @@ export default function Home() {
           </button>
         </form>
 
-        {error && <p className="text-red-500 text-center">{error}</p>}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6" role="alert">
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
 
         <div className="space-y-4">
           {names.map((name) => (
