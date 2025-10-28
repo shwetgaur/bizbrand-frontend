@@ -21,11 +21,13 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+// app/page.tsx
+
   const handleNameGeneration = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
-    setNames([]); // <-- Reset to an empty array
+    setNames([]);
     setDomainStatus({});
 
     try {
@@ -35,25 +37,27 @@ export default function Home() {
 
       console.log("Full API Response:", response);
 
-      // --- START OF THE MAP() CRASH FIX ---
-      // Check if the response data AND the 'names' property exist and is an array
+      // --- START OF THE FIX ---
+      
+      // Check 1: Does the backend send { names: [...] } ?
       if (response.data && Array.isArray(response.data.names)) {
-        // This is the "happy path"
         setNames(response.data.names);
+      
+      // Check 2: OR does the backend send [...] directly?
+      } else if (response.data && Array.isArray(response.data)) {
+        setNames(response.data); // <-- This will now succeed
+      
+      // Check 3: If neither, it's invalid data.
       } else {
-        // The API returned a 200 OK, but not the data we expected.
         console.error("API returned unexpected data:", response.data);
         setError('API returned invalid data. Check console for details.');
       }
-      // --- END OF THE MAP() CRASH FIX ---
+      // --- END OF THE FIX ---
 
-    } catch (err) { // 'err' is of type 'unknown'
-      
+    } catch (err) {
       console.error("API Request Failed:", err);
       
-      // This part safely checks for errors
       if (isAxiosError(err) && err.response?.data?.error) {
-        // This is a specific error from our backend (e.g., "Model is loading...")
         setError(err.response.data.error);
       } else if (err instanceof Error) {
         setError(err.message);
@@ -65,7 +69,7 @@ export default function Home() {
       setIsLoading(false);
     }
   };
-
+  
   const handleDomainCheck = async (name: string) => {
     setDomainStatus((prev) => ({
       ...prev,
