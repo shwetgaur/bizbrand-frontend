@@ -69,7 +69,7 @@ export default function Home() {
       setIsLoading(false);
     }
   };
-  
+
   const handleDomainCheck = async (name: string) => {
     setDomainStatus((prev) => ({
       ...prev,
@@ -93,9 +93,12 @@ export default function Home() {
       }));
       
       if (isAxiosError(err) && err.response?.data?.error) {
-        alert(`Failed to check domain: ${err.response.data.error}`);
+        const errMsg = err.response.data.error;
+        setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
+      } else if (err instanceof Error) {
+        setError(err.message);
       } else {
-        alert(`Failed to check domain for ${name}`);
+        setError('An unknown error occurred. Please try again.');
       }
     }
   };
