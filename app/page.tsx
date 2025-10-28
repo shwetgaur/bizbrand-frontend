@@ -1,9 +1,11 @@
-// app/page.tsx
 'use client';
 
 import { useState } from 'react';
 import axios, { isAxiosError } from 'axios';
 
+// --- Backend URL ---
+// Will use the env variable NEXT_PUBLIC_API_URL if defined (e.g. in Vercel),
+// otherwise defaults to your local backend.
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 type DomainStatus = {
@@ -20,6 +22,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // --- Generate Names ---
   const handleNameGeneration = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -33,42 +36,36 @@ export default function Home() {
       });
 
       console.log("Full API Response:", response);
-      
-      // Fix for data being an array or object
+
+      // Handle response formats safely
       if (response.data && Array.isArray(response.data.names)) {
         setNames(response.data.names);
-      } else if (response.data && Array.isArray(response.data)) {
-        setNames(response.data); 
+      } else if (Array.isArray(response.data)) {
+        setNames(response.data);
       } else {
-        console.error("API returned unexpected data:", response.data);
-        setError('API returned invalid data. Check console for details.');
+        console.error("Unexpected API response format:", response.data);
+        setError("Unexpected API response format. Check console.");
       }
-
     } catch (err) {
       console.error("API Request Failed:", err);
-      
-      // --- THIS IS THE FIX FOR THE CRASH ---
-      if (isAxiosError(err) && err.response?.data?.error) {
-        const errMsg = err.response.data.error;
-        // Check if the error is a string or an object
-        if (typeof errMsg === 'string') {
-          setError(errMsg);
-        } else {
-          // If it's an object, stringify it to make it renderable
-          setError(JSON.stringify(errMsg));
-        }
+
+      if (isAxiosError(err)) {
+        const errMsg =
+          err.response?.data?.error ||
+          err.message ||
+          "An unknown server error occurred.";
+        setError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError('An unknown error occurred. Please try again.');
+        setError("Unknown error occurred. Please try again.");
       }
-      // --- END OF THE FIX ---
-
     } finally {
       setIsLoading(false);
     }
   };
 
+  // --- Check Domain ---
   const handleDomainCheck = async (name: string) => {
     setDomainStatus((prev) => ({
       ...prev,
@@ -76,33 +73,33 @@ export default function Home() {
     }));
 
     try {
+      const cleanName = name.toLowerCase().replace(/[^a-z0-9]/gi, '');
       const response = await axios.get(`${API_BASE_URL}/check-domain`, {
-        params: { domain: name.toLowerCase().replace(/[^a-z0-9]/gi, '') },
+        params: { domain: cleanName },
       });
-      
+
       setDomainStatus((prev) => ({
         ...prev,
         [name]: { loading: false, available: response.data.available },
       }));
-
     } catch (err) {
+      console.error("Domain check failed:", err);
+
       setDomainStatus((prev) => ({
         ...prev,
         [name]: { loading: false },
       }));
-      
-      // Also apply the fix here just in case
-      if (isAxiosError(err) && err.response?.data?.error) {
-        const errMsg = err.response.data.error;
-        if (typeof errMsg === 'string') {
-          alert(`Failed to check domain: ${errMsg}`);
-        } else {
-          alert(`Failed to check domain: ${JSON.stringify(errMsg)}`);
-        }
+
+      if (isAxiosError(err)) {
+        const errMsg =
+          err.response?.data?.error ||
+          err.message ||
+          "Could not check domain.";
+        alert(`Domain check error: ${errMsg}`);
       } else if (err instanceof Error) {
-        alert(`Failed to check domain: ${err.message}`);
+        alert(`Domain check error: ${err.message}`);
       } else {
-        alert(`Failed to check domain for ${name}`);
+        alert("Domain check failed. Please try again.");
       }
     }
   };
@@ -110,7 +107,9 @@ export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center p-24 bg-gray-50">
       <div className="w-full max-w-2xl">
-        <h1 className="text-4xl font-bold text-center mb-8">BizBrand.ai</h1>
+        <h1 className="text-4xl font-bold text-center mb-8 text-blue-700">
+          BizBrand.ai 🚀
+        </h1>
         <p className="text-center text-gray-600 mb-8">
           AI-powered brand identity creation. Start with your business idea.
         </p>
@@ -127,41 +126,46 @@ export default function Home() {
           <button
             type="submit"
             className="w-full bg-blue-600 text-white p-3 rounded-lg mt-4 font-semibold hover:bg-blue-700 disabled:bg-gray-400"
-            disabled={isLoading}
+            disabled={isLoading || !description.trim()}
           >
-            {isLoading ? 'Generating...' : 'Generate Names'}
+            {isLoading ? 'Generating Names...' : 'Generate Names'}
           </button>
         </form>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6" role="alert">
-            <span className="block sm:inline">{error}</span>
+          <div
+            className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6"
+            role="alert"
+          >
+            <strong>Error:</strong> {error}
           </div>
         )}
 
-        <div className="space-y-4">
-          {names.map((name) => (
-            <div
-              key={name}
-              className="flex items-center justify-between p-4 bg-white border rounded-lg shadow-sm"
-            >
-              <span className="text-lg font-medium">{name}</span>
-              <button
-                onClick={() => handleDomainCheck(name)}
-                className="text-sm bg-gray-100 p-2 rounded-md hover:bg-gray-200 disabled:opacity-50"
-                disabled={domainStatus[name]?.loading}
+        {names.length > 0 && (
+          <div className="space-y-4">
+            {names.map((name) => (
+              <div
+                key={name}
+                className="flex items-center justify-between p-4 bg-white border rounded-lg shadow-sm hover:shadow-md transition"
               >
-                {domainStatus[name]?.loading
-                  ? 'Checking...'
-                  : domainStatus[name]?.available === true
-                  ? '✅ Available (.com)'
-                  : domainStatus[name]?.available === false
-                  ? '❌ Taken'
-                  : 'Check Availability'}
-              </button>
-            </div>
-          ))}
-        </div>
+                <span className="text-lg font-medium">{name}</span>
+                <button
+                  onClick={() => handleDomainCheck(name)}
+                  className="text-sm bg-gray-100 p-2 rounded-md hover:bg-gray-200 disabled:opacity-50"
+                  disabled={domainStatus[name]?.loading}
+                >
+                  {domainStatus[name]?.loading
+                    ? 'Checking...'
+                    : domainStatus[name]?.available === true
+                    ? '✅ Available (.com)'
+                    : domainStatus[name]?.available === false
+                    ? '❌ Taken'
+                    : 'Check Availability'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
