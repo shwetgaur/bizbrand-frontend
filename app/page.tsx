@@ -2,9 +2,8 @@
 'use client';
 
 import { useState } from 'react';
-import axios, { isAxiosError } from 'axios'; // <-- Import isAxiosError
+import axios, { isAxiosError } from 'axios';
 
-// This URL is correct. It loads the Vercel env variable, or uses localhost as a backup.
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 type DomainStatus = {
@@ -16,14 +15,10 @@ type DomainStatus = {
 
 export default function Home() {
   const [description, setDescription] = useState('');
-  const [names, setNames] = useState<string[]>([]); // <-- Initial state is an empty array []
+  const [names, setNames] = useState<string[]>([]);
   const [domainStatus, setDomainStatus] = useState<DomainStatus>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-// app/page.tsx
-
-  // app/page.tsx
 
   const handleNameGeneration = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +34,7 @@ export default function Home() {
 
       console.log("Full API Response:", response);
       
+      // Fix for data being an array or object
       if (response.data && Array.isArray(response.data.names)) {
         setNames(response.data.names);
       } else if (response.data && Array.isArray(response.data)) {
@@ -51,21 +47,28 @@ export default function Home() {
     } catch (err) {
       console.error("API Request Failed:", err);
       
-      // --- START OF THE FIX ---
+      // --- THIS IS THE FIX FOR THE CRASH ---
       if (isAxiosError(err) && err.response?.data?.error) {
         const errMsg = err.response.data.error;
-        setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
+        // Check if the error is a string or an object
+        if (typeof errMsg === 'string') {
+          setError(errMsg);
+        } else {
+          // If it's an object, stringify it to make it renderable
+          setError(JSON.stringify(errMsg));
+        }
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('An unknown error occurred. Please try again.');
       }
-            // --- END OF THE FIX ---
-      
+      // --- END OF THE FIX ---
+
     } finally {
       setIsLoading(false);
     }
   };
+
   const handleDomainCheck = async (name: string) => {
     setDomainStatus((prev) => ({
       ...prev,
@@ -88,8 +91,16 @@ export default function Home() {
         [name]: { loading: false },
       }));
       
+      // Also apply the fix here just in case
       if (isAxiosError(err) && err.response?.data?.error) {
-        alert(`Failed to check domain: ${err.response.data.error}`);
+        const errMsg = err.response.data.error;
+        if (typeof errMsg === 'string') {
+          alert(`Failed to check domain: ${errMsg}`);
+        } else {
+          alert(`Failed to check domain: ${JSON.stringify(errMsg)}`);
+        }
+      } else if (err instanceof Error) {
+        alert(`Failed to check domain: ${err.message}`);
       } else {
         alert(`Failed to check domain for ${name}`);
       }
