@@ -54,20 +54,14 @@ export default function Home() {
       // --- START OF THE FIX ---
       if (isAxiosError(err) && err.response?.data?.error) {
         const errMsg = err.response.data.error;
-        // Check if the error is a string or an object
-        if (typeof errMsg === 'string') {
-          setError(errMsg);
-        } else {
-          // If it's an object, stringify it to make it renderable
-          setError(JSON.stringify(errMsg));
-        }
+        setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('An unknown error occurred. Please try again.');
       }
-      // --- END OF THE FIX ---
-
+            // --- END OF THE FIX ---
+      
     } finally {
       setIsLoading(false);
     }
