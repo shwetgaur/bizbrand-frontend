@@ -163,7 +163,7 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center p-6 sm:p-24 bg-gray-50">
       <div className="w-full max-w-2xl">
         <h1 className="text-4xl font-bold text-center mb-8 text-blue-700">
-          BizBrand.ai 🚀
+          BIZBRAND.AI 
         </h1>
         <p className="text-center text-gray-600 mb-8">
           AI-powered brand identity creation. Start with your business idea.
