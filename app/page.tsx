@@ -8,6 +8,7 @@ import axios, { isAxiosError } from 'axios';
 // otherwise defaults to your local backend.
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
+// --- Type Definitions ---
 type DomainStatus = {
   [key: string]: {
     loading: boolean;
@@ -15,11 +16,21 @@ type DomainStatus = {
   };
 };
 
+// New state to hold logo URLs and loading status per name
+type LogoState = {
+  [key: string]: {
+    loading: boolean;
+    urls: string[];
+    error?: string | null;
+  };
+};
+
 export default function Home() {
   const [description, setDescription] = useState('');
   const [names, setNames] = useState<string[]>([]);
   const [domainStatus, setDomainStatus] = useState<DomainStatus>({});
-  const [isLoading, setIsLoading] = useState(false);
+  const [logoState, setLogoState] = useState<LogoState>({});
+  const [isLoading, setIsLoading] = useState(false); // This is for the *main* name generation
   const [error, setError] = useState<string | null>(null);
 
   // --- Generate Names ---
@@ -29,6 +40,7 @@ export default function Home() {
     setError(null);
     setNames([]);
     setDomainStatus({});
+    setLogoState({}); // Clear old logos when generating new names
 
     try {
       const response = await axios.post(`${API_BASE_URL}/generate-name`, {
@@ -104,8 +116,51 @@ export default function Home() {
     }
   };
 
+  // --- NEW: Generate Logos ---
+  const handleLogoGeneration = async (name: string) => {
+    // Set loading state for this specific name
+    setLogoState((prev) => ({
+      ...prev,
+      [name]: { loading: true, urls: [], error: null },
+    }));
+    setError(null); // Clear main error
+
+    try {
+      // Send both the company name and the original description
+      const response = await axios.post(`${API_BASE_URL}/generate-logo`, {
+        company_name: name,
+        context_prompt: description, // Pass the original description as context
+      });
+
+      if (response.data && Array.isArray(response.data.image_urls)) {
+        setLogoState((prev) => ({
+          ...prev,
+          [name]: { loading: false, urls: response.data.image_urls },
+        }));
+      } else {
+        throw new Error("Invalid response format from logo generator.");
+      }
+    } catch (err) {
+      console.error("Logo generation failed:", err);
+      let errorMsg = "Failed to generate logos.";
+
+      if (isAxiosError(err)) {
+        const errMsg = err.response?.data?.error || err.message;
+        errorMsg = typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg);
+      } else if (err instanceof Error) {
+        errorMsg = err.message;
+      }
+      
+      setLogoState((prev) => ({
+        ...prev,
+        [name]: { loading: false, urls: [], error: errorMsg },
+      }));
+    }
+  };
+
+  // --- Render UI ---
   return (
-    <main className="flex min-h-screen flex-col items-center p-24 bg-gray-50">
+    <main className="flex min-h-screen flex-col items-center p-6 sm:p-24 bg-gray-50">
       <div className="w-full max-w-2xl">
         <h1 className="text-4xl font-bold text-center mb-8 text-blue-700">
           BizBrand.ai 🚀
@@ -114,6 +169,7 @@ export default function Home() {
           AI-powered brand identity creation. Start with your business idea.
         </p>
 
+        {/* --- NAME GENERATION FORM --- */}
         <form onSubmit={handleNameGeneration} className="mb-12">
           <textarea
             value={description}
@@ -125,13 +181,14 @@ export default function Home() {
           />
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white p-3 rounded-lg mt-4 font-semibold hover:bg-blue-700 disabled:bg-gray-400"
+            className="w-full bg-blue-600 text-white p-3 rounded-lg mt-4 font-semibold hover:bg-blue-700 disabled:bg-gray-400 transition"
             disabled={isLoading || !description.trim()}
           >
             {isLoading ? 'Generating Names...' : 'Generate Names'}
           </button>
         </form>
 
+        {/* --- MAIN ERROR DISPLAY --- */}
         {error && (
           <div
             className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6"
@@ -141,27 +198,72 @@ export default function Home() {
           </div>
         )}
 
+        {/* --- RESULTS AREA --- */}
         {names.length > 0 && (
           <div className="space-y-4">
+            <h2 className="text-2xl font-semibold text-gray-800">Your Results</h2>
             {names.map((name) => (
               <div
                 key={name}
-                className="flex items-center justify-between p-4 bg-white border rounded-lg shadow-sm hover:shadow-md transition"
+                className="bg-white border rounded-lg shadow-sm p-5 space-y-4 transition"
               >
-                <span className="text-lg font-medium">{name}</span>
-                <button
-                  onClick={() => handleDomainCheck(name)}
-                  className="text-sm bg-gray-100 p-2 rounded-md hover:bg-gray-200 disabled:opacity-50"
-                  disabled={domainStatus[name]?.loading}
-                >
-                  {domainStatus[name]?.loading
-                    ? 'Checking...'
-                    : domainStatus[name]?.available === true
-                    ? '✅ Available (.com)'
-                    : domainStatus[name]?.available === false
-                    ? '❌ Taken'
-                    : 'Check Availability'}
-                </button>
+                {/* --- Name & Buttons --- */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-xl font-semibold text-gray-900 mb-2 sm:mb-0">
+                    {name}
+                  </span>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleDomainCheck(name)}
+                      className="text-sm bg-gray-100 px-3 py-2 rounded-md hover:bg-gray-200 disabled:opacity-50 transition"
+                      disabled={domainStatus[name]?.loading}
+                    >
+                      {domainStatus[name]?.loading
+                        ? 'Checking...'
+                        : domainStatus[name]?.available === true
+                        ? '✅ Available (.com)'
+                        : domainStatus[name]?.available === false
+                        ? '❌ Taken'
+                        : 'Check Availability'}
+                    </button>
+                    <button
+                      onClick={() => handleLogoGeneration(name)}
+                      className="text-sm bg-blue-500 text-white px-3 py-2 rounded-md hover:bg-blue-600 disabled:bg-blue-300 transition"
+                      disabled={isLoading || logoState[name]?.loading}
+                    >
+                      {logoState[name]?.loading ? 'Generating...' : 'Generate Logos'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* --- LOGO RESULTS AREA --- */}
+                {logoState[name] && (
+                  <div className="pt-4 border-t border-gray-200">
+                    {logoState[name].loading && (
+                      <p className="text-sm text-gray-500 animate-pulse">
+                        Generating logos, this may take a minute...
+                      </p>
+                    )}
+                    {logoState[name].error && (
+                       <div className="text-sm text-red-600" role="alert">
+                         <strong>Logo Error:</strong> {logoState[name].error}
+                       </div>
+                    )}
+                    {logoState[name].urls.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                        {logoState[name].urls.map((url, index) => (
+                          <a href={url} target="_blank" rel="noopener noreferrer" key={index}>
+                            <img
+                              src={url}
+                              alt={`${name} logo ${index + 1}`}
+                              className="rounded-lg border border-gray-200 shadow-sm hover:shadow-lg transition"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
