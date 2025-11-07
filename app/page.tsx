@@ -5,7 +5,7 @@ import axios, { isAxiosError } from 'axios';
 
 // --- Backend URLs ---
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-const LOGO_API_URL = 'https://bf7428852c65.ngrok-free.app/generate-logo/';
+const LOGO_API_URL = 'https://7c0649f6d54c.ngrok-free.app/generate-logo/';
 
 // --- Type Definitions ---
 type DomainStatus = {
