@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios, { isAxiosError } from 'axios';
 
 // --- Backend URLs ---
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-const LOGO_API_URL = 'https://34d371eb18e0.ngrok-free.app/generate-logo/';
+const LOGO_API_URL = 'https://34d371eb18e0.ngrok-free.app';
 
 // --- Type Definitions ---
 type DomainStatus = {
@@ -18,9 +18,10 @@ type DomainStatus = {
 type LogoState = {
   [key: string]: {
     loading: boolean;
+    jobId?: string;
     urls: string[];
     error?: string | null;
-    retries?: number;
+    status?: string;
   };
 };
 
@@ -32,8 +33,43 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Helper to sleep between retries
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  // Helper to poll logo status
+  const pollLogoStatus = async (name: string, jobId: string, attempt = 0) => {
+    if (attempt > 40) {
+      // ~200s total polling (40 × 5s)
+      setLogoState((prev) => ({
+        ...prev,
+        [name]: { ...prev[name], loading: false, error: 'Logo generation took too long. Please retry.' },
+      }));
+      return;
+    }
+
+    try {
+      const response = await axios.get(`${LOGO_API_URL}/logo-status/${jobId}`);
+      const data = response.data;
+
+      if (data.status === 'pending') {
+        console.log(`Logo status for ${name}: still pending (attempt ${attempt})`);
+        await new Promise((r) => setTimeout(r, 5000)); // wait 5s
+        pollLogoStatus(name, jobId, attempt + 1);
+      } else if (data.status === 'completed' && Array.isArray(data.image_urls)) {
+        console.log(`Logo ready for ${name}`);
+        setLogoState((prev) => ({
+          ...prev,
+          [name]: { loading: false, urls: data.image_urls, status: 'completed' },
+        }));
+      } else if (data.status === 'failed') {
+        setLogoState((prev) => ({
+          ...prev,
+          [name]: { loading: false, urls: [], error: data.error || 'Logo generation failed.' },
+        }));
+      }
+    } catch (err) {
+      console.error(`Polling failed for ${name}:`, err);
+      await new Promise((r) => setTimeout(r, 5000));
+      pollLogoStatus(name, jobId, attempt + 1);
+    }
+  };
 
   // --- Generate Names (Vercel backend) ---
   const handleNameGeneration = async (e: React.FormEvent) => {
@@ -54,28 +90,17 @@ export default function Home() {
       } else if (Array.isArray(response.data)) {
         setNames(response.data);
       } else {
-        setError('Unexpected API response format. Check console.');
-        console.error('Unexpected response:', response.data);
+        setError('Unexpected API response format.');
       }
     } catch (err) {
-      console.error('API Request Failed:', err);
-      if (isAxiosError(err)) {
-        const errMsg =
-          err.response?.data?.error ||
-          err.message ||
-          'Server did not respond.';
-        setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Unknown error occurred.');
-      }
+      console.error('Name generation failed:', err);
+      setError(isAxiosError(err) ? err.message : 'Unknown error occurred.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // --- Check Domain (Vercel backend) ---
+  // --- Check Domain ---
   const handleDomainCheck = async (name: string) => {
     setDomainStatus((prev) => ({
       ...prev,
@@ -87,7 +112,6 @@ export default function Home() {
       const response = await axios.get(`${API_BASE_URL}/check-domain`, {
         params: { domain: cleanName },
       });
-
       setDomainStatus((prev) => ({
         ...prev,
         [name]: { loading: false, available: response.data.available },
@@ -98,25 +122,15 @@ export default function Home() {
         ...prev,
         [name]: { loading: false },
       }));
-
-      let errMsg = 'Could not check domain.';
-      if (isAxiosError(err)) {
-        errMsg =
-          err.response?.data?.error ||
-          err.message ||
-          'Domain check error occurred.';
-      } else if (err instanceof Error) {
-        errMsg = err.message;
-      }
-      alert(`Domain check error: ${errMsg}`);
+      alert('Domain check error. Try again.');
     }
   };
 
-  // --- Generate Logos (direct to ngrok FastAPI, with retries) ---
-  const handleLogoGeneration = async (name: string, attempt = 1) => {
+  // --- Generate Logos (ASYNC JOB-BASED) ---
+  const handleLogoGeneration = async (name: string) => {
     setLogoState((prev) => ({
       ...prev,
-      [name]: { loading: true, urls: [], error: null, retries: attempt },
+      [name]: { loading: true, urls: [], error: null },
     }));
 
     try {
@@ -124,54 +138,36 @@ export default function Home() {
       form.append('company_name', name);
       form.append('context_prompt', description);
 
-      const response = await axios.post(LOGO_API_URL, form, {
+      // First call triggers generation job
+      const response = await axios.post(`${LOGO_API_URL}/generate-logo`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 180000, // 3 min per attempt
+        timeout: 30000, // short timeout (job creation only)
       });
 
-      // Success
-      if (response.data && Array.isArray(response.data.image_urls)) {
-        setLogoState((prev) => ({
-          ...prev,
-          [name]: { loading: false, urls: response.data.image_urls },
-        }));
-      } else {
-        throw new Error('Invalid response format from logo generator.');
-      }
-    } catch (err) {
-      console.error(`Logo generation failed (attempt ${attempt}):`, err);
-      let errorMsg = 'Failed to generate logos.';
-      if (isAxiosError(err)) {
-        if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
-          errorMsg = `Timeout after attempt ${attempt}. Retrying...`;
-        } else if (err.response?.status === 0) {
-          errorMsg = 'Network error: backend not reachable.';
-        } else {
-          errorMsg = err.response?.data?.error || err.message;
-        }
-      } else if (err instanceof Error) {
-        errorMsg = err.message;
+      const { job_id } = response.data;
+
+      if (!job_id) {
+        throw new Error('Job ID not returned.');
       }
 
-      // Retry up to 3 times with exponential backoff
-      if (attempt < 3) {
-        setLogoState((prev) => ({
-          ...prev,
-          [name]: { loading: true, urls: [], error: errorMsg, retries: attempt },
-        }));
-        await sleep(3000 * attempt);
-        return handleLogoGeneration(name, attempt + 1);
-      }
-
-      // Final failure
       setLogoState((prev) => ({
         ...prev,
-        [name]: { loading: false, urls: [], error: `Logo generation failed after ${attempt} attempts.` },
+        [name]: { ...prev[name], jobId: job_id, status: 'pending' },
+      }));
+
+      // Start polling until job completes
+      pollLogoStatus(name, job_id);
+    } catch (err) {
+      console.error('Logo job creation failed:', err);
+      let msg = 'Failed to start logo generation.';
+      if (isAxiosError(err)) msg = err.message;
+      setLogoState((prev) => ({
+        ...prev,
+        [name]: { loading: false, urls: [], error: msg },
       }));
     }
   };
 
-  // --- Render UI ---
   return (
     <main className="flex min-h-screen flex-col items-center p-6 sm:p-24 bg-gray-50">
       <div className="w-full max-w-2xl">
@@ -245,34 +241,29 @@ export default function Home() {
                       disabled={isLoading || logoState[name]?.loading}
                     >
                       {logoState[name]?.loading
-                        ? `Generating${logoState[name]?.retries ? ` (Try ${logoState[name]?.retries})` : ''}...`
+                        ? 'Generating...'
                         : 'Generate Logos'}
                     </button>
                   </div>
                 </div>
 
-                {/* --- LOGO RESULTS AREA --- */}
+                {/* --- LOGO RESULTS --- */}
                 {logoState[name] && (
                   <div className="pt-4 border-t border-gray-200">
-                    {logoState[name].loading && (
+                    {logoState[name].status === 'pending' && (
                       <p className="text-sm text-gray-500 animate-pulse">
-                        Generating logos... please wait. (May retry if slow)
+                        Generating logos... Please wait. This may take a few minutes if Colab is slow.
                       </p>
                     )}
                     {logoState[name].error && (
-                      <div className="text-sm text-red-600" role="alert">
-                        <strong>Logo Error:</strong> {logoState[name].error}
+                      <div className="text-sm text-red-600">
+                        <strong>Error:</strong> {logoState[name].error}
                       </div>
                     )}
                     {logoState[name].urls.length > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-2">
                         {logoState[name].urls.map((url, index) => (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            key={index}
-                          >
+                          <a key={index} href={url} target="_blank" rel="noopener noreferrer">
                             <img
                               src={url}
                               alt={`${name} logo ${index + 1}`}
