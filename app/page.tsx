@@ -4,9 +4,7 @@ import { useState } from 'react';
 import axios, { isAxiosError } from 'axios';
 
 // --- Backend URLs ---
-// Name + domain use your deployed API (Vercel) or local fallback
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-// Logo generation uses your ngrok FastAPI endpoint directly (multipart/form-data)
 const LOGO_API_URL = 'https://bf7428852c65.ngrok-free.app/generate-logo/';
 
 // --- Type Definitions ---
@@ -30,7 +28,7 @@ export default function Home() {
   const [names, setNames] = useState<string[]>([]);
   const [domainStatus, setDomainStatus] = useState<DomainStatus>({});
   const [logoState, setLogoState] = useState<LogoState>({});
-  const [isLoading, setIsLoading] = useState(false); // main name generation
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // --- Generate Names (Vercel backend) ---
@@ -40,11 +38,11 @@ export default function Home() {
     setError(null);
     setNames([]);
     setDomainStatus({});
-    setLogoState({}); // clear old logos
+    setLogoState({});
 
     try {
-      const response = await axios.post(${API_BASE_URL}/generate-name, {
-        description: description,
+      const response = await axios.post(`${API_BASE_URL}/generate-name`, {
+        description,
       });
 
       if (response.data && Array.isArray(response.data.names)) {
@@ -82,7 +80,7 @@ export default function Home() {
 
     try {
       const cleanName = name.toLowerCase().replace(/[^a-z0-9]/gi, '');
-      const response = await axios.get(${API_BASE_URL}/check-domain, {
+      const response = await axios.get(`${API_BASE_URL}/check-domain`, {
         params: { domain: cleanName },
       });
 
@@ -92,46 +90,40 @@ export default function Home() {
       }));
     } catch (err) {
       console.error('Domain check failed:', err);
-
       setDomainStatus((prev) => ({
         ...prev,
         [name]: { loading: false },
       }));
 
+      let errMsg = 'Could not check domain.';
       if (isAxiosError(err)) {
-        const errMsg =
+        errMsg =
           err.response?.data?.error ||
           err.message ||
-          'Could not check domain.';
-        alert(Domain check error: ${errMsg});
+          'Domain check error occurred.';
       } else if (err instanceof Error) {
-        alert(Domain check error: ${err.message});
-      } else {
-        alert('Domain check failed. Please try again.');
+        errMsg = err.message;
       }
+      alert(`Domain check error: ${errMsg}`);
     }
   };
 
   // --- Generate Logos (direct to ngrok FastAPI) ---
   const handleLogoGeneration = async (name: string) => {
-    // Set loading state for this specific name
     setLogoState((prev) => ({
       ...prev,
       [name]: { loading: true, urls: [], error: null },
     }));
-    setError(null); // Clear main error
+    setError(null);
 
     try {
-      // The ngrok FastAPI expects multipart/form-data with fields:
-      // company_name, context_prompt
       const form = new FormData();
       form.append('company_name', name);
-      form.append('context_prompt', description); // reuse the description as context
+      form.append('context_prompt', description);
 
       const response = await axios.post(LOGO_API_URL, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        // Optionally increase timeout since generation can take a bit:
-        timeout: 300000, // 5 minutes
+        timeout: 300000, // 5 min
       });
 
       if (response.data && Array.isArray(response.data.image_urls)) {
@@ -145,7 +137,6 @@ export default function Home() {
     } catch (err) {
       console.error('Logo generation failed:', err);
       let errorMsg = 'Failed to generate logos.';
-
       if (isAxiosError(err)) {
         const errMsg = err.response?.data?.error || err.message;
         errorMsg = typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg);
@@ -254,10 +245,15 @@ export default function Home() {
                     {logoState[name].urls.length > 0 && (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                         {logoState[name].urls.map((url, index) => (
-                          <a href={url} target="_blank" rel="noopener noreferrer" key={index}>
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            key={index}
+                          >
                             <img
                               src={url}
-                              alt={${name} logo ${index + 1}}
+                              alt={`${name} logo ${index + 1}`}
                               className="rounded-lg border border-gray-200 shadow-sm hover:shadow-lg transition"
                             />
                           </a>
