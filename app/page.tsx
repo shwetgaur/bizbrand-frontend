@@ -20,6 +20,7 @@ type LogoState = {
     loading: boolean;
     urls: string[];
     error?: string | null;
+    retries?: number;
   };
 };
 
@@ -30,6 +31,9 @@ export default function Home() {
   const [logoState, setLogoState] = useState<LogoState>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Helper to sleep between retries
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   // --- Generate Names (Vercel backend) ---
   const handleNameGeneration = async (e: React.FormEvent) => {
@@ -50,8 +54,8 @@ export default function Home() {
       } else if (Array.isArray(response.data)) {
         setNames(response.data);
       } else {
-        console.error('Unexpected API response format:', response.data);
         setError('Unexpected API response format. Check console.');
+        console.error('Unexpected response:', response.data);
       }
     } catch (err) {
       console.error('API Request Failed:', err);
@@ -59,12 +63,12 @@ export default function Home() {
         const errMsg =
           err.response?.data?.error ||
           err.message ||
-          'An unknown server error occurred.';
+          'Server did not respond.';
         setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg));
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError('Unknown error occurred. Please try again.');
+        setError('Unknown error occurred.');
       }
     } finally {
       setIsLoading(false);
@@ -108,13 +112,12 @@ export default function Home() {
     }
   };
 
-  // --- Generate Logos (direct to ngrok FastAPI) ---
-  const handleLogoGeneration = async (name: string) => {
+  // --- Generate Logos (direct to ngrok FastAPI, with retries) ---
+  const handleLogoGeneration = async (name: string, attempt = 1) => {
     setLogoState((prev) => ({
       ...prev,
-      [name]: { loading: true, urls: [], error: null },
+      [name]: { loading: true, urls: [], error: null, retries: attempt },
     }));
-    setError(null);
 
     try {
       const form = new FormData();
@@ -123,9 +126,10 @@ export default function Home() {
 
       const response = await axios.post(LOGO_API_URL, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000, // 5 min
+        timeout: 180000, // 3 min per attempt
       });
 
+      // Success
       if (response.data && Array.isArray(response.data.image_urls)) {
         setLogoState((prev) => ({
           ...prev,
@@ -135,18 +139,34 @@ export default function Home() {
         throw new Error('Invalid response format from logo generator.');
       }
     } catch (err) {
-      console.error('Logo generation failed:', err);
+      console.error(`Logo generation failed (attempt ${attempt}):`, err);
       let errorMsg = 'Failed to generate logos.';
       if (isAxiosError(err)) {
-        const errMsg = err.response?.data?.error || err.message;
-        errorMsg = typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg);
+        if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+          errorMsg = `Timeout after attempt ${attempt}. Retrying...`;
+        } else if (err.response?.status === 0) {
+          errorMsg = 'Network error: backend not reachable.';
+        } else {
+          errorMsg = err.response?.data?.error || err.message;
+        }
       } else if (err instanceof Error) {
         errorMsg = err.message;
       }
 
+      // Retry up to 3 times with exponential backoff
+      if (attempt < 3) {
+        setLogoState((prev) => ({
+          ...prev,
+          [name]: { loading: true, urls: [], error: errorMsg, retries: attempt },
+        }));
+        await sleep(3000 * attempt);
+        return handleLogoGeneration(name, attempt + 1);
+      }
+
+      // Final failure
       setLogoState((prev) => ({
         ...prev,
-        [name]: { loading: false, urls: [], error: errorMsg },
+        [name]: { loading: false, urls: [], error: `Logo generation failed after ${attempt} attempts.` },
       }));
     }
   };
@@ -224,7 +244,9 @@ export default function Home() {
                       className="text-sm bg-blue-500 text-white px-3 py-2 rounded-md hover:bg-blue-600 disabled:bg-blue-300 transition"
                       disabled={isLoading || logoState[name]?.loading}
                     >
-                      {logoState[name]?.loading ? 'Generating...' : 'Generate Logos'}
+                      {logoState[name]?.loading
+                        ? `Generating${logoState[name]?.retries ? ` (Try ${logoState[name]?.retries})` : ''}...`
+                        : 'Generate Logos'}
                     </button>
                   </div>
                 </div>
@@ -234,7 +256,7 @@ export default function Home() {
                   <div className="pt-4 border-t border-gray-200">
                     {logoState[name].loading && (
                       <p className="text-sm text-gray-500 animate-pulse">
-                        Generating logos, this may take a minute...
+                        Generating logos... please wait. (May retry if slow)
                       </p>
                     )}
                     {logoState[name].error && (
